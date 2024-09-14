@@ -95,12 +95,24 @@ def is_model_gguf(model_path: pathlib.Path) -> bool:
         with model_path.open("rb") as f:
             first_four_bytes = f.read(4)
 
-        # Convert the first four bytes to an integer
-        first_four_bytes_int = int(struct.unpack("<I", first_four_bytes)[0])
+        try:
+            # Convert the first four bytes to an integer
+            first_four_bytes_int = int(struct.unpack("<I", first_four_bytes)[0])
+        except struct.error as exc:
+            logger.debug(
+                f"Failed to unpack the first four bytes of {model_path}. "
+                f"The file might not be a valid GGUF file or is corrupted: {exc}"
+            )
+            return False
 
         return first_four_bytes_int == GGUF_MAGIC
     except IsADirectoryError as exc:
-        logger.debug(f"GGUF Path is a directory, returning {exc}")
+        logger.debug(f"GGUF Path {model_path} is a directory, returning {exc}")
+        return False
+    except OSError as exc:
+        logger.debug(
+            f"An unexpected error occurred while processing {model_path}: {exc}"
+        )
         return False
 
 
