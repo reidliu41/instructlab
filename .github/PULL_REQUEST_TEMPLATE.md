@@ -18,5 +18,9 @@ Resolves #
 - [ ] [Changelog](https://github.com/instructlab/instructlab/blob/main/CHANGELOG.md) updated with breaking and/or notable changes for the next minor release.
 - [ ] Documentation has been updated, if necessary.
 - [ ] Unit tests have been added, if necessary.
+<<<<<<< HEAD
 - [ ] Functional tests have been added, if nessessary.
+=======
+- [ ] Functional tests have been added, if necessary.
+>>>>>>> main
 - [ ] E2E Workflow tests have been added, if necessary.

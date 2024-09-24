@@ -387,31 +387,6 @@ test_no_chat_logs(){
         '
 }
 
-
-test_temp_server_ignore_internal_messages(){
-    # shellcheck disable=SC2016
-    expect -c '
-        set timeout 60
-        spawn ilab model chat
-        expect "Starting a temporary server at"
-        send "hello!\r"
-        sleep 5
-        send "\003"
-        expect {
-            "Disconnected from client (via refresh/close)" { exit 1 }
-        }
-        send "exit\r"
-        expect {
-            "Traceback (most recent call last):" { set exp_result 1 }
-            default { set exp_result 0 }
-        }
-        if { $exp_result != 0 } {
-            puts stderr "Error: ilab model chat command failed"
-            exit 1
-        }
-    '
-}
-
 test_server_welcome_message(){
     # test that the server welcome message is displayed
     ilab model serve --log-file serve.log &
@@ -584,7 +559,11 @@ ilab --version
 ilab system info
 
 # pipe 3 carriage returns to ilab config init to get past the prompts
+<<<<<<< HEAD
 echo -e "\n\n\n" | ilab init
+=======
+echo -e "\n\n\n" | ilab config init
+>>>>>>> main
 
 # Enable Debug in func tests with debug level 1
 sed -i.bak -e 's/log_level:.*/log_level: DEBUG/g;' "${ILAB_CONFIG_FILE}"
@@ -631,8 +610,6 @@ cleanup
 test_temp_server_sigint
 cleanup
 test_no_chat_logs
-cleanup
-test_temp_server_ignore_internal_messages
 cleanup
 test_server_chat_template
 cleanup

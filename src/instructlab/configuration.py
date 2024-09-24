@@ -30,214 +30,15 @@ from pydantic import (
 from pydantic_core import PydanticUndefined
 from ruamel.yaml import YAML, CommentedMap
 from typing_extensions import deprecated as Deprecated
-from xdg_base_dirs import xdg_cache_home, xdg_config_home, xdg_data_home
 import click
-import httpx
 
 # Local
 from . import log
-
-ILAB_PACKAGE_NAME = "instructlab"
-CONFIG_FILENAME = "config.yaml"
-CONFIG_VERSION = "1.0.0"
+from .defaults import CONFIG_VERSION, DEFAULTS, MODEL_FAMILIES, MODEL_FAMILY_MAPPINGS
 
 # Initialize ruamel.yaml
 yaml = YAML()
 yaml.indent(mapping=2, sequence=4, offset=2)
-
-
-class STORAGE_DIR_NAMES:
-    ILAB = "instructlab"
-    DATASETS = "datasets"
-    CHECKPOINTS = "checkpoints"
-    OCI = "oci"
-    MODELS = "models"
-    TAXONOMY = "taxonomy"
-    INTERNAL = (
-        "internal"  # for storing all ilab-internal files the user doesn't need to see
-    )
-    CHATLOGS = "chatlogs"
-    PHASED = "phased"
-
-
-class _InstructlabDefaults:
-    """
-    Class that defines the default paths used by ilab.
-    We define them this way so that they can be lazy-loaded and overridden by tests.
-    This way, they are defined when they are read instead of when the module is imported.
-    """
-
-    # define static defaults up here
-    API_KEY = "no_api_key"
-
-    # ILAB_GLOBAL_CONFIG is the environment variable that can be used to override the default config
-    # file. When set, the CLI will use the file specified in the environment variable as a sample to
-    # generate the default config file.
-    ILAB_GLOBAL_CONFIG = "ILAB_GLOBAL_CONFIG"
-    ILAB_TRAIN_PROFILE_DIR = "ILAB_TRAIN_PROFILE_DIR"
-
-    # TODO: Consolidate --model and --model-path into one --model-path flag since we always need a path now
-    MODEL_NAME_OLD = "merlinite-7b-lab-Q4_K_M"
-    MERLINITE_GGUF_REPO = "instructlab/merlinite-7b-lab-GGUF"
-    GGUF_MODEL_NAME = "merlinite-7b-lab-Q4_K_M.gguf"
-    MODEL_REPO = "instructlab/granite-7b-lab"
-    JUDGE_MODEL_MT = "prometheus-eval/prometheus-8x7b-v2.0"
-    TAXONOMY_REPO = "https://github.com/instructlab/taxonomy.git"
-    TAXONOMY_BASE = "origin/main"
-    MAX_CONTEXT_SIZE = 4096
-    # TODO: these constants should be removed, they should not leak out
-    NUM_CPUS = 10
-    CHUNK_WORD_COUNT = 1000
-    CONNECTION_TIMEOUT = httpx.Timeout(timeout=30.0)
-    # use spawn start method, fork is not thread-safe
-    MULTIPROCESSING_START_METHOD = "spawn"
-    SDG_PIPELINE = "simple"
-    SDG_SCALE_FACTOR = 30
-
-    # When otherwise unknown, ilab uses this as the default family
-    MODEL_FAMILY = "merlinite"
-    ADDITIONAL_ARGS_DEFAULTS = {
-        "learning_rate": 2e-5,
-        "warmup_steps": 25,
-        "random_seed": 42,
-        "node_rank": 0,
-        "nnodes": 1,
-        "rdzv_id": 123,
-        "rdzv_endpoint": "127.0.0.1:12222",
-        "deepspeed_cpu_offload_optimizer_ratio": 1,
-        "deepspeed_cpu_offload_optimizer_pin_memory": False,
-        "lora_alpha": 32,
-        "lora_dropout": 0.1,
-        "lora_target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
-    }
-
-    def __init__(self):
-        self._reset()
-
-    def _reset(self):
-        """
-        Utility function which is mostly used for testing purposes to clear the cache.
-        Otherwise, all tests will used cached temporary directories and cause errors.
-        """
-        self._cache_home = os.path.join(xdg_cache_home(), ILAB_PACKAGE_NAME)
-        self._config_dir = os.path.join(xdg_config_home(), ILAB_PACKAGE_NAME)
-        self._data_dir = os.path.join(xdg_data_home(), ILAB_PACKAGE_NAME)
-
-    @property
-    def CHECKPOINTS_DIR(self) -> str:
-        return path.join(self._data_dir, STORAGE_DIR_NAMES.CHECKPOINTS)
-
-    @property
-    def OCI_DIR(self) -> str:
-        return path.join(self._cache_home, STORAGE_DIR_NAMES.OCI)
-
-    @property
-    def DATASETS_DIR(self) -> str:
-        return path.join(self._data_dir, STORAGE_DIR_NAMES.DATASETS)
-
-    @property
-    def CONFIG_FILE(self) -> str:
-        return path.join(self._config_dir, CONFIG_FILENAME)
-
-    @property
-    def MODELS_DIR(self) -> str:
-        return path.join(self._cache_home, STORAGE_DIR_NAMES.MODELS)
-
-    @property
-    def DEFAULT_MODEL(self) -> str:
-        return path.join(self.MODELS_DIR, self.GGUF_MODEL_NAME)
-
-    @property
-    def DEFAULT_JUDGE_MODEL(self) -> str:
-        return path.join(self.MODELS_DIR, self.JUDGE_MODEL_MT)
-
-    @property
-    def TAXONOMY_DIR(self) -> str:
-        return path.join(self._data_dir, STORAGE_DIR_NAMES.TAXONOMY)
-
-    @property
-    def CHATLOGS_DIR(self) -> str:
-        return path.join(self._data_dir, STORAGE_DIR_NAMES.CHATLOGS)
-
-    @property
-    def PHASED_DIR(self) -> str:
-        return path.join(self._data_dir, STORAGE_DIR_NAMES.PHASED)
-
-    @property
-    def INTERNAL_DIR(self) -> str:
-        """
-        This directory is used for storing all misc. files that the user doesn't need to see.
-
-        For example, during training we output an intermediate dataset with the tokenized
-        instructions and the generated responses.
-        Usually this gets outputted into /dev/shm, however this may not be an option on every system,
-        so we would store it in here as a fall-back.
-        """
-        return path.join(self._data_dir, STORAGE_DIR_NAMES.INTERNAL)
-
-    @property
-    def SEED_FILE(self) -> str:
-        return path.join(self.INTERNAL_DIR, "seed_tasks.json")
-
-    @property
-    def EVAL_DATA_DIR(self) -> str:
-        return path.join(self.INTERNAL_DIR, "eval_data")
-
-    @property
-    def TRAIN_CONFIG_DIR(self) -> str:
-        return path.join(self.INTERNAL_DIR, "train_configuration")
-
-    @property
-    def TRAIN_PROFILE_DIR(self) -> str:
-        return path.join(self.TRAIN_CONFIG_DIR, "profiles")
-
-    @property
-    def TRAIN_ADDITIONAL_OPTIONS_DIR(self) -> str:
-        return path.join(self.TRAIN_CONFIG_DIR, "additional")
-
-    @property
-    def TRAIN_ADDITIONAL_OPTIONS_FILE(self) -> str:
-        return path.join(self.TRAIN_ADDITIONAL_OPTIONS_DIR, "additional_args.yaml")
-
-    @property
-    def TRAIN_DEFAULT_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "default.yaml")
-
-    @property
-    def TRAIN_A100_H100_X4_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "A100_H100_x4.yaml")
-
-    @property
-    def TRAIN_A100_H100_X8_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "A100_H100_x8.yaml")
-
-    @property
-    def TRAIN_A100_H100_X2_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "A100_H100_x2.yaml")
-
-    @property
-    def TRAIN_L40_X8_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "L40_x8.yaml")
-
-    @property
-    def TRAIN_L40_X4_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "L40_x4.yaml")
-
-    @property
-    def TRAIN_L4_X8_PROFILE(self) -> str:
-        return path.join(self.TRAIN_PROFILE_DIR, "L4_x8.yaml")
-
-
-DEFAULTS = _InstructlabDefaults()
-
-
-# Model families understood by ilab
-MODEL_FAMILIES = {"merlinite", "mixtral"}
-
-# Map model names to their family
-MODEL_FAMILY_MAPPINGS = {
-    "granite": "merlinite",
-}
 
 
 class ConfigException(Exception):
@@ -249,6 +50,7 @@ class _general(BaseModel):
 
     # model configuration
     model_config = ConfigDict(extra="ignore")
+
     # additional fields with defaults
     log_level: StrictStr = Field(default="INFO", description="Log level for logging.")
     debug_level: int = Field(default=0, description="Debug level for logging.")
@@ -282,7 +84,7 @@ class _general(BaseModel):
 
 
 class _chat(BaseModel):
-    """Class describing configuration of the chat sub-command."""
+    """Class describing configuration of the 'chat' sub-command."""
 
     # model configuration
     model_config = ConfigDict(extra="ignore")
@@ -294,7 +96,7 @@ class _chat(BaseModel):
     vi_mode: bool = Field(default=False, description="Enable vim keybindings for chat.")
     visible_overflow: bool = Field(
         default=True,
-        description="Renders vertical overflow if enabled, displays elipses otherwise.",
+        description="Renders vertical overflow if enabled, displays ellipses otherwise.",
     )
     context: str = Field(
         default="default",
@@ -303,10 +105,11 @@ class _chat(BaseModel):
     session: typing.Optional[str] = Field(
         default=None, description="Filepath of a dialog session file."
     )
+    # use a lambda to avoid caching
     logs_dir: str = Field(
         default_factory=lambda: DEFAULTS.CHATLOGS_DIR,
         description="Directory where chat logs are stored.",
-    )  # use a lambda to avoid caching
+    )
     greedy_mode: bool = Field(
         default=False,
         description="Sets temperature to 0 if enabled, leading to more deterministic responses.",
@@ -318,7 +121,7 @@ class _chat(BaseModel):
 
 
 class _serve_vllm(BaseModel):
-    """Class describing configuration of vllm serving backend."""
+    """Class describing configuration of vLLM serving backend."""
 
     llm_family: str = Field(
         default="",  # TODO: convert to None and use a pattern to validate
@@ -330,7 +133,7 @@ class _serve_vllm(BaseModel):
         description="Maximum number of attempts to start the vLLM server.",
     )
     gpus: Optional[int] = Field(default=None, description="Number of GPUs to use.")
-    # arguments to pass into vllm process
+    # arguments to pass into vLLM process
     vllm_args: list[str] | None = Field(
         default_factory=list,
         description="vLLM specific arguments. All settings can be passed as a list of strings, see: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html",
@@ -360,11 +163,11 @@ class _serve_llama_cpp(BaseModel):
 
 
 class _serve(BaseModel):
-    """Class describing configuration of the serve sub-command."""
+    """Class describing configuration of the 'serve' sub-command."""
 
     # model configuration
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
-    # vllm configuration
+    # vLLM configuration
     vllm: _serve_vllm = Field(
         default_factory=_serve_vllm,
         description="vLLM serving settings.",
@@ -405,7 +208,7 @@ class _serve(BaseModel):
 
 
 class _generate(BaseModel):
-    """Class describing configuration of the generate sub-command."""
+    """Class describing configuration of the 'generate' sub-command."""
 
     # model configuration
     model_config = ConfigDict(extra="ignore")
@@ -453,6 +256,7 @@ class _generate(BaseModel):
         description="Directory where generated datasets are stored.",
     )
     # TODO: remove this? It's not used anywhere, was removed by 19b9f4794f79ef81578c00c901bac3ee9db8c046
+    # related issue: https://github.com/instructlab/instructlab/issues/2261
     seed_file: StrictStr = Field(
         description="Path to seed file to be used for generation.",
         default_factory=lambda: DEFAULTS.SEED_FILE,
@@ -461,6 +265,8 @@ class _generate(BaseModel):
 
 
 class _mmlu(BaseModel):
+    """Class describing configuration of MMLU evaluation benchmark."""
+
     few_shots: int = Field(
         default=5,
         description="Number of question-answer pairs provided in the context preceding the question used for evaluation.",
@@ -472,6 +278,8 @@ class _mmlu(BaseModel):
 
 
 class _mtbench(BaseModel):
+    """Class describing configuration of MTBench evaluation benchmark."""
+
     judge_model: str = Field(
         default_factory=lambda: DEFAULTS.JUDGE_MODEL_MT,
         description="Directory where model to be used as judge is stored.",
@@ -487,6 +295,8 @@ class _mtbench(BaseModel):
 
 
 class _mtbenchbranch(BaseModel):
+    """Class describing configuration of MTBenchBranch evaluation benchmark."""
+
     taxonomy_path: str = Field(
         default_factory=lambda: DEFAULTS.TAXONOMY_DIR,
         description="Path to where base taxonomy is stored.",
@@ -494,6 +304,8 @@ class _mtbenchbranch(BaseModel):
 
 
 class _mmlubranch(BaseModel):
+    """Class describing configuration of MMLUBranch evaluation benchmark."""
+
     tasks_dir: str = Field(
         default_factory=lambda: DEFAULTS.DATASETS_DIR,
         description="Directory where custom MMLU tasks are stored.",
@@ -501,6 +313,8 @@ class _mmlubranch(BaseModel):
 
 
 class _evaluate(BaseModel):
+    """Class describing configuration of the 'evaluate' sub-command."""
+
     # model configuration
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
     model: Optional[str] = Field(
@@ -538,6 +352,8 @@ class _evaluate(BaseModel):
 
 
 class _train(BaseModel):
+    """Class describing configuration of the 'train' sub-command."""
+
     # model configuration
     model_config = ConfigDict(extra="ignore", protected_namespaces=())
     model_path: str = Field(
@@ -614,8 +430,8 @@ class _train(BaseModel):
     # anything greater than 0 enables samples_per_save for the phase.
     phased_phase1_samples_per_save: int = Field(
         default=0,
-        description="Number of samples the model should see before saving a checkpoint during phase1. Disabled when set to 0.",
         ge=0,
+        description="Number of samples the model should see before saving a checkpoint during phase1. Disabled when set to 0.",
     )
     phased_phase1_effective_batch_size: int | None = Field(
         default=128,
@@ -647,20 +463,23 @@ class _train(BaseModel):
 
 
 class Config(BaseModel):
-    """Configuration for the InstructLab CLI."""
+    """Configuration for the InstructLab CLI.
+    Config options are defined by the respective subclasses and are loaded into a single 'Config' object here
+    Instantation of this object should be done via 'get_default_config()'
+    Note that values here can be overriden by a users 'config.yaml' or command line overrides in some cases
+    """
 
+    # chat configuration
     chat: _chat = Field(
         default_factory=_chat, description="Chat configuration section."
     )
+    # generate configuration
     generate: _generate = Field(
         default_factory=_generate, description="Generate configuration section."
     )
+    # serve configuration (includes both llama-cpp and vLLM configuration)
     serve: _serve = Field(
         default_factory=_serve, description="Serve configuration section."
-    )
-    # additional fields with defaults
-    general: _general = Field(
-        default_factory=_general, description="General configuration section."
     )
     # train configuration
     train: _train = Field(
@@ -670,8 +489,13 @@ class Config(BaseModel):
     evaluate: _evaluate = Field(
         default_factory=_evaluate, description="Evaluate configuration section."
     )
+    # additional fields with defaults
+    general: _general = Field(
+        default_factory=_general, description="General configuration section."
+    )
     # model configuration
     model_config = ConfigDict(extra="ignore")
+    # config file versioning
     version: str = Field(
         default=CONFIG_VERSION,
         description="Configuration file structure version.",

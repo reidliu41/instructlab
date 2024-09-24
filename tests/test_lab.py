@@ -21,17 +21,44 @@ from instructlab.clickext import ConfigOption, get_default_and_description
 from instructlab.utils import is_macos_with_m_chip
 
 
+def get_commands():
+    commands: typing.Dict[str, typing.Set[str]] = {}
+    for primary in metadata.entry_points(group="instructlab.command"):
+        sub = commands.setdefault(primary.name, set())
+        sub.add(
+            ""
+        )  # Add empty string to handle primary command without secondary command
+        for secondary in metadata.entry_points(
+            group=f"instructlab.command.{primary.name}"
+        ):
+            sub.add(secondary.name)
+    return commands
+
+
 class TestConfig:
     def test_cli_params_hyphenated(self):
         flag_pattern = re.compile("-{1,2}[0-9a-z-]+")
         invalid_flags = []
-        for name, cmd in lab.ilab.commands.items():
-            for param in cmd.params:
-                if not isinstance(param, click.Option):
-                    continue
-                for opt in param.opts:
-                    if not flag_pattern.fullmatch(opt):
-                        invalid_flags.append(f"{name} {opt}")
+        commands = get_commands()
+        for prim, secondaries in commands.items():
+            entry_points = metadata.entry_points(group=f"instructlab.command.{prim}")
+            for sec in secondaries:
+                for entry_point in entry_points:
+                    if entry_point.name != sec:
+                        continue
+                    command = entry_point.load()
+                    if not isinstance(command, click.Command):
+                        continue
+                    for param in command.params:
+                        if not isinstance(param, ConfigOption):
+                            continue
+                        # Do this long one-liner to avoid linter complaint:
+                        # Too many nested blocks (6/5) (too-many-nested-blocks)
+                        invalid_flags.extend(
+                            f"{prim} {opt}"
+                            for opt in param.opts
+                            if not flag_pattern.fullmatch(opt)
+                        )
         assert not invalid_flags, "<- these commands are using non-hyphenated params"
 
 
@@ -107,16 +134,8 @@ subcommands: list[Command] = [
 aliases = [
     "serve",
     "train",
-    "convert",
     "chat",
-    "test",
-    "evaluate",
-    "init",
-    "download",
-    "diff",
     "generate",
-    "sysinfo",
-    "list",
 ]
 
 
@@ -129,6 +148,7 @@ def test_ilab_cli_help(command: Command, cli_runner: CliRunner):
 
 
 def test_cli_help_matches_field_description(cli_runner: CliRunner):
+<<<<<<< HEAD
     commands: typing.Dict[str, typing.Set[str]] = {}
     for primary in metadata.entry_points(group="instructlab.command"):
         sub = commands.setdefault(primary.name, set())
@@ -138,6 +158,9 @@ def test_cli_help_matches_field_description(cli_runner: CliRunner):
         ):
             sub.add(secondary.name)
 
+=======
+    commands = get_commands()
+>>>>>>> main
     for prim, secondaries in commands.items():
         if prim == "config":
             continue
@@ -190,6 +213,7 @@ def test_cli_help_matches_field_description(cli_runner: CliRunner):
                         "- ", "-"
                     )
                     assert str(description) in normalize_output, normalize_output
+<<<<<<< HEAD
 
 
 @pytest.mark.parametrize("alias", aliases)
@@ -198,6 +222,8 @@ def test_ilab_cli_deprecated_help(alias: str, cli_runner):
     result = cli_runner.invoke(lab.ilab, cmd)
     assert result.exit_code == 0, result.stdout
     assert "this will be deprecated in a future release" in result.stdout
+=======
+>>>>>>> main
 
 
 @pytest.mark.parametrize(
